@@ -21,7 +21,7 @@ use anyhow::{anyhow, Context as _};
 use cargo::core::registry::PackageRegistry;
 use cargo::core::resolver::features::HasDevUnits;
 use cargo::core::resolver::CliFeatures;
-use cargo::core::source::GitReference;
+use cargo::core::GitReference;
 use cargo::core::{Package, PackageSet, Resolve, Workspace, PackageId};
 use cargo::ops;
 use cargo::util::{important_paths, CargoResult};
@@ -98,6 +98,7 @@ impl<'cfg> PackageInfo<'cfg> {
             &[],
             /* warn? */
             true,
+            None,
         )?;
 
         Ok((packages, resolve))
@@ -249,7 +250,7 @@ fn real_main(options: Args, config: &mut Config) -> CliResult {
                 src_uri_extras.push(format!("SRCREV_FORMAT .= \"_{}\"", pkg.name()));
 
                 let precise = if options.reproducible {
-                    src_id.precise()
+                    src_id.precise_git_fragment()
                 } else {
                     None
                 };
@@ -264,7 +265,7 @@ fn real_main(options: Args, config: &mut Config) -> CliResult {
                                 // avoid reduced hashes
                                 s
                             } else {
-                                let precise = src_id.precise();
+                                let precise = src_id.precise_git_fragment();
                                 if let Some(p) = precise {
                                     p
                                 } else {
