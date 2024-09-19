@@ -22,9 +22,9 @@ use cargo::core::registry::PackageRegistry;
 use cargo::core::resolver::features::HasDevUnits;
 use cargo::core::resolver::CliFeatures;
 use cargo::core::{GitReference, Package, PackageId, PackageSet, Resolve, Workspace};
-use cargo::ops;
+use cargo::sources::SourceConfigMap;
+use cargo::{ops, GlobalContext, CliResult};
 use cargo::util::{important_paths, CargoResult};
-use cargo::{CliResult, Config};
 use itertools::Itertools;
 use std::default::Default;
 use std::env;
@@ -41,7 +41,7 @@ const CRATES_IO_URL: &str = "crates.io";
 
 /// Represents the package we are trying to generate a recipe for
 struct PackageInfo<'cfg> {
-    cfg: &'cfg Config,
+    gctx: &'cfg GlobalContext,
     current_manifest: PathBuf,
     ws: Workspace<'cfg>,
 }
@@ -49,12 +49,13 @@ struct PackageInfo<'cfg> {
 impl<'cfg> PackageInfo<'cfg> {
     /// creates our package info from the config and the `manifest_path`,
     /// which may not be provided
-    fn new(config: &Config, manifest_path: Option<String>) -> CargoResult<PackageInfo> {
-        let manifest_path = manifest_path.map_or_else(|| config.cwd().to_path_buf(), PathBuf::from);
+    fn new(gctx: &GlobalContext, manifest_path: Option<String>) -> CargoResult<PackageInfo> {
+        let manifest_path = manifest_path.map_or_else(|| gctx.cwd().to_path_buf(), PathBuf::from);
         let root = important_paths::find_root_manifest_for_wd(&manifest_path)?;
-        let ws = Workspace::new(&root, config)?;
+        let ws = Workspace::new(&root, gctx)?;
+
         Ok(PackageInfo {
-            cfg: config,
+            gctx,
             current_manifest: root,
             ws,
         })
@@ -68,7 +69,8 @@ impl<'cfg> PackageInfo<'cfg> {
     /// Generates a package registry by using the Cargo.lock or
     /// creating one as necessary
     fn registry(&self) -> CargoResult<PackageRegistry<'cfg>> {
-        let mut registry = PackageRegistry::new(self.cfg)?;
+        let source_config = SourceConfigMap::empty(&self.gctx)?;
+        let mut registry = PackageRegistry::new_with_source_config(&self.gctx, source_config)?;
         let package = self.package()?;
         registry.add_sources(vec![package.package_id().source_id()])?;
         Ok(registry)
@@ -80,7 +82,7 @@ impl<'cfg> PackageInfo<'cfg> {
         let mut registry = self.registry()?;
 
         // resolve our dependencies
-        let (packages, resolve) = ops::resolve_ws(&self.ws)?;
+        let (packages, resolve) = ops::resolve_ws(&self.ws, false)?;
 
         // resolve with all features set so we ensure we get all of the depends downloaded
         let resolve = ops::resolve_with_previous(
@@ -95,9 +97,8 @@ impl<'cfg> PackageInfo<'cfg> {
             None,
             /* specs */
             &[],
-            /* warn? */
+            /* register patches? */
             true,
-            None,
         )?;
 
         Ok((packages, resolve))
@@ -175,16 +176,16 @@ enum Opt {
 }
 
 fn main() {
-    let mut config = Config::default().unwrap();
+    let mut gctx = GlobalContext::default().unwrap();
     let Opt::Bitbake(opt) = Opt::from_args();
-    let result = real_main(opt, &mut config);
+    let result = real_main(opt, &mut gctx);
     if let Err(e) = result {
-        cargo::exit_with_error(e, &mut config.shell());
+        cargo::exit_with_error(e, &mut gctx.shell());
     }
 }
 
-fn real_main(options: Args, config: &mut Config) -> CliResult {
-    config.configure(
+fn real_main(options: Args, gctx: &mut GlobalContext) -> CliResult {
+    gctx.configure(
         options.verbose as u32,
         options.quiet,
         /* color */
@@ -204,7 +205,7 @@ fn real_main(options: Args, config: &mut Config) -> CliResult {
     )?;
 
     // Build up data about the package we are attempting to generate a recipe for
-    let md = PackageInfo::new(config, None)?;
+    let md = PackageInfo::new(gctx, None)?;
 
     // Our current package
     let package = md.package()?;
@@ -382,7 +383,7 @@ fn real_main(options: Args, config: &mut Config) -> CliResult {
     let license = license.split('/').map(str::trim).join(" | ");
 
     // attempt to figure out the git repo for this project
-    let project_repo = git::ProjectRepo::new(config).unwrap_or_else(|e| {
+    let project_repo = git::ProjectRepo::new(gctx).unwrap_or_else(|e| {
         println!("{}", e);
         Default::default()
     });
