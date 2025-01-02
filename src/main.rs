@@ -65,26 +65,23 @@ struct Args {
     legacy_overrides: bool,
 }
 
-/*
-#[derive(Parser)]
-#[structopt(
+#[derive(clap::Parser)]
+#[command(
     name = "cargo-bitbake",
     bin_name = "cargo",
     author,
-    about = "Generates a BitBake recipe for a given Cargo project",
-    global_settings(&[AppSettings::ColoredHelp])
 )]
 enum Opt {
     /// Generates a BitBake recipe for a given Cargo project
-    #[structopt(name = "bitbake")]
+    #[clap(name = "bitbake")]
     Bitbake(Args),
 }
-*/
 
 fn main() {
     let mut gctx = GlobalContext::default().unwrap();
-    let args = Args::parse();
+    let Opt::Bitbake(args) = Opt::parse();
     let result = real_main(args, &mut gctx);
+
     if let Err(e) = result {
         cargo::exit_with_error(e, &mut gctx.shell());
     }
