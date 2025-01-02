@@ -6,7 +6,7 @@ documentation = "https://github.com/cardoe/cargo-bitbake"
 homepage = "https://github.com/cardoe/cargo-bitbake"
 keywords = ["cargo-subcommand", "bitbake", "yocto", "recipe"]
 license = "MIT/Apache-2.0"
-edition = "2018"
+edition = "2021"
 name = "cargo-bitbake"
 readme = "README.md"
 repository = "https://github.com/cardoe/cargo-bitbake"
@@ -22,11 +22,11 @@ maintenance = { status = "passively-maintained" }
 repository = "cardoe/cargo-bitbake"
 
 [dependencies]
-anyhow = "^1.0"
+anyhow = { version = "1.0.79", default-features = false, features = ["std"] }
 cargo = "0.84"
-git2 = "0.19"
+clap = { version = "4.0.28", default-features = false, features = ["color", "derive", "env", "error-context", "help", "string", "unicode", "usage", "std", "suggestions", "wrap_help"] }
+git2 = { version = "0.19.0", default-features = false }
 itertools = "0.14.0"
 lazy_static = "^1"
-md5 = "^0.7"
+md5 = "0.7.0"
 regex = "^1"
-structopt = "^0.3"

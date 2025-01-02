@@ -8,120 +8,25 @@
  * except according to those terms.
  */
 
-extern crate anyhow;
-extern crate cargo;
-extern crate git2;
-extern crate itertools;
-extern crate lazy_static;
-extern crate md5;
-extern crate regex;
-extern crate structopt;
-
-use anyhow::{anyhow, Context as _};
-use cargo::core::registry::PackageRegistry;
-use cargo::core::resolver::features::HasDevUnits;
-use cargo::core::resolver::CliFeatures;
-use cargo::core::{GitReference, Package, PackageId, PackageSet, Resolve, Workspace};
-use cargo::ops;
-use cargo::util::{important_paths, CargoResult};
-use cargo::{CliResult, GlobalContext};
-use itertools::Itertools;
 use std::default::Default;
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use structopt::clap::AppSettings;
-use structopt::StructOpt;
+
+use anyhow::{anyhow, Context as _};
+use cargo::core::{GitReference, Package, PackageId, PackageSet, Resolve, Workspace};
+use cargo::{CliResult, GlobalContext};
+use clap::Parser;
+use itertools::Itertools;
 
 mod git;
 mod license;
+mod package_info;
+
+use package_info::PackageInfo;
 
 const CRATES_IO_URL: &str = "crates.io";
-
-/// Represents the package we are trying to generate a recipe for
-struct PackageInfo<'gctx> {
-    _gctx: &'gctx GlobalContext,
-    current_manifest: PathBuf,
-    ws: Workspace<'gctx>,
-}
-
-impl<'gctx> PackageInfo<'gctx> {
-    /// creates our package info from the global context and the
-    /// `manifest_path`, which may not be provided
-    fn new(gctx: &GlobalContext, manifest_path: Option<String>) -> CargoResult<PackageInfo> {
-        let manifest_path = manifest_path.map_or_else(|| gctx.cwd().to_path_buf(), PathBuf::from);
-        let root = important_paths::find_root_manifest_for_wd(&manifest_path)?;
-        let ws = Workspace::new(&root, gctx)?;
-        Ok(PackageInfo {
-            _gctx: gctx,
-            current_manifest: root,
-            ws,
-        })
-    }
-
-    /// provides the current package we are working with
-    fn package(&self) -> CargoResult<&Package> {
-        self.ws.current()
-    }
-
-    /// Generates a package registry by using the Cargo.lock or
-    /// creating one as necessary
-    fn registry(&self) -> CargoResult<PackageRegistry<'gctx>> {
-        let mut registry = self.ws.package_registry()?;
-        let package = self.package()?;
-        registry.add_sources(vec![package.package_id().source_id()])?;
-        Ok(registry)
-    }
-
-    /// Resolve the packages necessary for the workspace
-    fn resolve(&self) -> CargoResult<(PackageSet<'gctx>, Resolve)> {
-        // build up our registry
-        let mut registry = self.registry()?;
-
-        // resolve our dependencies
-        let dry_run = false;
-        let (packages, resolve) = ops::resolve_ws(&self.ws, dry_run)?;
-
-        // resolve with all features set so we ensure we get all of the depends downloaded
-        let resolve = ops::resolve_with_previous(
-            &mut registry,
-            &self.ws,
-            /* resolve it all */
-            &CliFeatures::new_all(true),
-            HasDevUnits::No,
-            /* previous */
-            Some(&resolve),
-            /* don't avoid any */
-            None,
-            /* specs */
-            &[],
-            /* warn? */
-            true,
-        )?;
-
-        Ok((packages, resolve))
-    }
-
-    /// packages that are part of a workspace are a sub directory from the
-    /// top level which we need to record, this provides us with that
-    /// relative directory
-    fn rel_dir(&self) -> CargoResult<PathBuf> {
-        // this is the top level of the workspace
-        let root = self.ws.root().to_path_buf();
-        // path where our current package's Cargo.toml lives
-        let cwd = self.current_manifest.parent().ok_or_else(|| {
-            anyhow!(
-                "Could not get parent of directory '{}'",
-                self.current_manifest.display()
-            )
-        })?;
-
-        cwd.strip_prefix(&root)
-            .map(Path::to_path_buf)
-            .context("Unable to if Cargo.toml is in a sub directory")
-    }
-}
 
 fn get_checksum(package_set: &PackageSet, pkg_id: PackageId) -> String {
     match package_set
@@ -137,30 +42,31 @@ fn get_checksum(package_set: &PackageSet, pkg_id: PackageId) -> String {
     }
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(clap::Parser)]
 struct Args {
+    #[arg(short, long)]
     /// Silence all output
-    #[structopt(short = "q")]
     quiet: bool,
 
+    #[arg(short, action = clap::ArgAction::Count)]
     /// Verbose mode (-v, -vv, -vvv, etc.)
-    #[structopt(short = "v", parse(from_occurrences))]
-    verbose: usize,
+    verbose: u8,
 
+    #[arg(short)]
     /// Reproducible mode: Output exact git references for git projects
-    #[structopt(short = "R")]
     reproducible: bool,
 
+    #[clap(short = 'c', long)]
     /// Don't emit inline checksums
-    #[structopt(short = "c", long)]
     no_checksums: bool,
 
+    #[clap(short, long)]
     /// Legacy Overrides: Use legacy override syntax
-    #[structopt(short, long)]
     legacy_overrides: bool,
 }
 
-#[derive(StructOpt, Debug)]
+/*
+#[derive(Parser)]
 #[structopt(
     name = "cargo-bitbake",
     bin_name = "cargo",
@@ -173,11 +79,12 @@ enum Opt {
     #[structopt(name = "bitbake")]
     Bitbake(Args),
 }
+*/
 
 fn main() {
     let mut gctx = GlobalContext::default().unwrap();
-    let Opt::Bitbake(opt) = Opt::from_args();
-    let result = real_main(opt, &mut gctx);
+    let args = Args::parse();
+    let result = real_main(args, &mut gctx);
     if let Err(e) = result {
         cargo::exit_with_error(e, &mut gctx.shell());
     }
@@ -233,15 +140,14 @@ fn real_main(options: Args, gctx: &mut GlobalContext) -> CliResult {
                 None
             } else if src_id.is_registry() {
                 // this package appears in a crate registry
-                if options.no_checksums  {
+                if options.no_checksums {
                     Some(format!(
                         "    crate://{}/{}/{} \\\n",
                         CRATES_IO_URL,
                         pkg.name(),
                         pkg.version()
                     ))
-                }
-                else {
+                } else {
                     Some(format!(
                         "    crate://{}/{}/{}{} \\\n",
                         CRATES_IO_URL,
