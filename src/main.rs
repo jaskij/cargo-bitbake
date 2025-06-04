@@ -68,7 +68,7 @@ impl<'cfg> PackageInfo<'cfg> {
     /// Generates a package registry by using the Cargo.lock or
     /// creating one as necessary
     fn registry(&self) -> CargoResult<PackageRegistry<'cfg>> {
-        let mut registry = PackageRegistry::new(self.cfg)?;
+        let mut registry = self.ws.package_registry()?;
         let package = self.package()?;
         registry.add_sources(vec![package.package_id().source_id()])?;
         Ok(registry)
@@ -80,7 +80,7 @@ impl<'cfg> PackageInfo<'cfg> {
         let mut registry = self.registry()?;
 
         // resolve our dependencies
-        let (packages, resolve) = ops::resolve_ws(&self.ws)?;
+        let (packages, resolve) = ops::resolve_ws(&self.ws, false)?;
 
         // resolve with all features set so we ensure we get all of the depends downloaded
         let resolve = ops::resolve_with_previous(
