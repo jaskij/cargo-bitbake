@@ -8,16 +8,7 @@
  * except according to those terms.
  */
 
-extern crate anyhow;
-extern crate cargo;
-extern crate git2;
-extern crate itertools;
-extern crate lazy_static;
-extern crate md5;
-extern crate regex;
-extern crate structopt;
-
-use anyhow::{anyhow, Context as _};
+use anyhow::{anyhow, Context};
 use cargo::core::registry::PackageRegistry;
 use cargo::core::resolver::features::HasDevUnits;
 use cargo::core::resolver::CliFeatures;
@@ -41,7 +32,6 @@ const CRATES_IO_URL: &str = "crates.io";
 
 /// Represents the package we are trying to generate a recipe for
 struct PackageInfo<'cfg> {
-    cfg: &'cfg GlobalContext,
     current_manifest: PathBuf,
     ws: Workspace<'cfg>,
 }
@@ -54,7 +44,6 @@ impl<'cfg> PackageInfo<'cfg> {
         let root = important_paths::find_root_manifest_for_wd(&manifest_path)?;
         let ws = Workspace::new(&root, config)?;
         Ok(PackageInfo {
-            cfg: config,
             current_manifest: root,
             ws,
         })
