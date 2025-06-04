@@ -232,15 +232,14 @@ fn real_main(options: Args, config: &mut GlobalContext) -> CliResult {
                 None
             } else if src_id.is_registry() {
                 // this package appears in a crate registry
-                if options.no_checksums  {
+                if options.no_checksums {
                     Some(format!(
                         "    crate://{}/{}/{} \\\n",
                         CRATES_IO_URL,
                         pkg.name(),
                         pkg.version()
                     ))
-                }
-                else {
+                } else {
                     Some(format!(
                         "    crate://{}/{}/{}{} \\\n",
                         CRATES_IO_URL,
