@@ -24,7 +24,7 @@ use cargo::core::resolver::CliFeatures;
 use cargo::core::{GitReference, Package, PackageId, PackageSet, Resolve, Workspace};
 use cargo::ops;
 use cargo::util::{important_paths, CargoResult};
-use cargo::{CliResult, Config};
+use cargo::{CliResult, GlobalContext};
 use itertools::Itertools;
 use std::default::Default;
 use std::env;
@@ -41,7 +41,7 @@ const CRATES_IO_URL: &str = "crates.io";
 
 /// Represents the package we are trying to generate a recipe for
 struct PackageInfo<'cfg> {
-    cfg: &'cfg Config,
+    cfg: &'cfg GlobalContext,
     current_manifest: PathBuf,
     ws: Workspace<'cfg>,
 }
@@ -49,7 +49,7 @@ struct PackageInfo<'cfg> {
 impl<'cfg> PackageInfo<'cfg> {
     /// creates our package info from the config and the `manifest_path`,
     /// which may not be provided
-    fn new(config: &Config, manifest_path: Option<String>) -> CargoResult<PackageInfo> {
+    fn new(config: &GlobalContext, manifest_path: Option<String>) -> CargoResult<PackageInfo> {
         let manifest_path = manifest_path.map_or_else(|| config.cwd().to_path_buf(), PathBuf::from);
         let root = important_paths::find_root_manifest_for_wd(&manifest_path)?;
         let ws = Workspace::new(&root, config)?;
@@ -91,13 +91,12 @@ impl<'cfg> PackageInfo<'cfg> {
             HasDevUnits::No,
             /* previous */
             Some(&resolve),
-            /* don't avoid any */
+            /* no filter means all are selected */
             None,
             /* specs */
             &[],
             /* warn? */
             true,
-            None,
         )?;
 
         Ok((packages, resolve))
@@ -175,7 +174,7 @@ enum Opt {
 }
 
 fn main() {
-    let mut config = Config::default().unwrap();
+    let mut config = GlobalContext::default().unwrap();
     let Opt::Bitbake(opt) = Opt::from_args();
     let result = real_main(opt, &mut config);
     if let Err(e) = result {
@@ -183,7 +182,7 @@ fn main() {
     }
 }
 
-fn real_main(options: Args, config: &mut Config) -> CliResult {
+fn real_main(options: Args, config: &mut GlobalContext) -> CliResult {
     config.configure(
         options.verbose as u32,
         options.quiet,
